@@ -1,3 +1,5 @@
+# terraform/modules/eks/main.tf - UPDATED to handle optional IRSA
+
 # EKS Cluster
 resource "aws_eks_cluster" "main" {
   name     = var.cluster_name
@@ -68,8 +70,6 @@ resource "aws_eks_node_group" "main" {
     max_unavailable = 1
   }
 
-  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
-  # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
   depends_on = [
     aws_eks_cluster.main,
   ]
@@ -77,8 +77,9 @@ resource "aws_eks_node_group" "main" {
   tags = var.common_tags
 }
 
-# EKS Addons
+# EKS Addons (only EBS CSI if role is provided)
 resource "aws_eks_addon" "ebs_csi" {
+  count                    = var.ebs_csi_driver_role_arn != "" ? 1 : 0
   cluster_name             = aws_eks_cluster.main.name
   addon_name               = "aws-ebs-csi-driver"
   addon_version            = var.ebs_csi_driver_version

@@ -1,3 +1,5 @@
+# terraform/modules/iam/variables.tf - UPDATED
+
 variable "project_name" {
   description = "Name of the project"
   type        = string
@@ -12,4 +14,5 @@ variable "common_tags" {
 variable "eks_oidc_issuer_url" {
   description = "EKS OIDC issuer URL"
   type        = string
+  default     = ""  # Allow empty string for initial deployment
 }

@@ -1,3 +1,5 @@
+# terraform/environments/dev/main.tf - FIXED VERSION
+
 terraform {
   required_version = ">= 1.0"
   required_providers {
@@ -46,14 +48,23 @@ module "vpc" {
   common_tags       = var.common_tags
 }
 
-# EKS Cluster
+# IAM Module (basic roles first)
+module "iam" {
+  source = "../../modules/iam"
+
+  project_name        = local.project_name
+  eks_oidc_issuer_url = ""  # Empty for first deployment
+  common_tags         = var.common_tags
+}
+
+# EKS Cluster (basic cluster without IRSA add-ons)
 module "eks" {
   source = "../../modules/eks"
 
   cluster_name             = local.cluster_name
   cluster_role_arn        = module.iam.eks_cluster_role_arn
   node_role_arn           = module.iam.eks_node_role_arn
-  ebs_csi_driver_role_arn = module.iam.ebs_csi_driver_role_arn
+  ebs_csi_driver_role_arn = ""  # Empty for first deployment
   private_subnet_ids      = module.vpc.private_subnet_ids
   public_subnet_ids       = module.vpc.public_subnet_ids
   kubernetes_version      = var.kubernetes_version
@@ -64,17 +75,6 @@ module "eks" {
   common_tags            = var.common_tags
 
   depends_on = [module.iam]
-}
-
-# IAM Module
-module "iam" {
-  source = "../../modules/iam"
-
-  project_name        = local.project_name
-  eks_oidc_issuer_url = module.eks.cluster_oidc_issuer_url
-  common_tags         = var.common_tags
-
-  depends_on = [module.eks]
 }
 
 # Route53 Hosted Zone

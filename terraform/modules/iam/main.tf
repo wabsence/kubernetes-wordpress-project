@@ -1,3 +1,5 @@
+# terraform/modules/iam/main.tf - CORRECTED VERSION
+
 # EKS Cluster Service Role
 resource "aws_iam_role" "eks_cluster_role" {
   name = "${var.project_name}-eks-cluster-role"
@@ -58,9 +60,24 @@ resource "aws_iam_role_policy_attachment" "eks_container_registry_policy" {
   role       = aws_iam_role.eks_node_role.name
 }
 
-# AWS Load Balancer Controller Role
+# OIDC Provider for EKS (only create if OIDC URL is provided)
+data "tls_certificate" "eks" {
+  count = var.eks_oidc_issuer_url != "" ? 1 : 0
+  url   = var.eks_oidc_issuer_url
+}
+
+resource "aws_iam_openid_connect_provider" "eks" {
+  count           = var.eks_oidc_issuer_url != "" ? 1 : 0
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.eks[0].certificates[0].sha1_fingerprint]
+  url             = var.eks_oidc_issuer_url
+  tags            = var.common_tags
+}
+
+# AWS Load Balancer Controller Role (only create if OIDC provider exists)
 resource "aws_iam_role" "aws_load_balancer_controller" {
-  name = "${var.project_name}-aws-load-balancer-controller"
+  count = var.eks_oidc_issuer_url != "" ? 1 : 0
+  name  = "${var.project_name}-aws-load-balancer-controller"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -69,12 +86,12 @@ resource "aws_iam_role" "aws_load_balancer_controller" {
         Action = "sts:AssumeRole"
         Effect = "Allow"
         Principal = {
-          Federated = aws_iam_openid_connect_provider.eks.arn
+          Federated = aws_iam_openid_connect_provider.eks[0].arn
         }
         Condition = {
           StringEquals = {
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller"
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud": "sts.amazonaws.com"
+            "${replace(aws_iam_openid_connect_provider.eks[0].url, "https://", "")}:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller"
+            "${replace(aws_iam_openid_connect_provider.eks[0].url, "https://", "")}:aud": "sts.amazonaws.com"
           }
         }
       }
@@ -84,37 +101,29 @@ resource "aws_iam_role" "aws_load_balancer_controller" {
   tags = var.common_tags
 }
 
-# Download AWS Load Balancer Controller IAM policy
+# Download AWS Load Balancer Controller IAM policy (only if needed)
 data "http" "aws_load_balancer_controller_policy" {
-  url = "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.7.2/docs/install/iam_policy.json"
+  count = var.eks_oidc_issuer_url != "" ? 1 : 0
+  url   = "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.7.2/docs/install/iam_policy.json"
 }
 
 resource "aws_iam_policy" "aws_load_balancer_controller" {
+  count  = var.eks_oidc_issuer_url != "" ? 1 : 0
   name   = "${var.project_name}-AWSLoadBalancerControllerIAMPolicy"
-  policy = data.http.aws_load_balancer_controller_policy.response_body
+  policy = data.http.aws_load_balancer_controller_policy[0].response_body
   tags   = var.common_tags
 }
 
 resource "aws_iam_role_policy_attachment" "aws_load_balancer_controller" {
-  policy_arn = aws_iam_policy.aws_load_balancer_controller.arn
-  role       = aws_iam_role.aws_load_balancer_controller.name
+  count      = var.eks_oidc_issuer_url != "" ? 1 : 0
+  policy_arn = aws_iam_policy.aws_load_balancer_controller[0].arn
+  role       = aws_iam_role.aws_load_balancer_controller[0].name
 }
 
-# OIDC Provider for EKS
-data "tls_certificate" "eks" {
-  url = var.eks_oidc_issuer_url
-}
-
-resource "aws_iam_openid_connect_provider" "eks" {
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
-  url             = var.eks_oidc_issuer_url
-  tags            = var.common_tags
-}
-
-# EBS CSI Driver Role
+# EBS CSI Driver Role (only create if OIDC provider exists)
 resource "aws_iam_role" "ebs_csi_driver" {
-  name = "${var.project_name}-ebs-csi-driver"
+  count = var.eks_oidc_issuer_url != "" ? 1 : 0
+  name  = "${var.project_name}-ebs-csi-driver"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -123,12 +132,12 @@ resource "aws_iam_role" "ebs_csi_driver" {
         Action = "sts:AssumeRole"
         Effect = "Allow"
         Principal = {
-          Federated = aws_iam_openid_connect_provider.eks.arn
+          Federated = aws_iam_openid_connect_provider.eks[0].arn
         }
         Condition = {
           StringEquals = {
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub": "system:serviceaccount:kube-system:ebs-csi-controller-sa"
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud": "sts.amazonaws.com"
+            "${replace(aws_iam_openid_connect_provider.eks[0].url, "https://", "")}:sub": "system:serviceaccount:kube-system:ebs-csi-controller-sa"
+            "${replace(aws_iam_openid_connect_provider.eks[0].url, "https://", "")}:aud": "sts.amazonaws.com"
           }
         }
       }
@@ -139,6 +148,7 @@ resource "aws_iam_role" "ebs_csi_driver" {
 }
 
 resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
+  count      = var.eks_oidc_issuer_url != "" ? 1 : 0
   policy_arn = "arn:aws:iam::aws:policy/service-role/Amazon_EBS_CSI_DriverPolicy"
-  role       = aws_iam_role.ebs_csi_driver.name
+  role       = aws_iam_role.ebs_csi_driver[0].name
 }
